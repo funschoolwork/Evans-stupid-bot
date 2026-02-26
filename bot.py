@@ -427,6 +427,7 @@ def _get_info(url: str) -> dict:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
+        "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
         **_ydl_cookie_opts(),
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -464,7 +465,7 @@ async def mp3(ctx, *, url: str = None):
     await status.edit(content=f"⏳ Converting **{title}** to MP3...")
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
         "outtmpl": os.path.join(DOWNLOADS_DIR, f"{safe_name}.%(ext)s"),
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
@@ -473,6 +474,7 @@ async def mp3(ctx, *, url: str = None):
         }],
         "quiet": True,
         "no_warnings": True,
+        "ignoreerrors": False,
         **_ydl_cookie_opts(),
     }
 
