@@ -87,6 +87,9 @@ def save_settings(data: dict):
 
 settings = load_settings()
 
+# Per-user MP3 job tracking — prevents spam/duplicate requests
+_active_mp3: set = set()
+
 # ════════════════════════════════════════════════
 #                BOT SETUP
 # ════════════════════════════════════════════════
@@ -159,6 +162,12 @@ async def on_command_error(ctx, error):
     else:
         await ctx.send(f"❌ Unexpected error: `{error}`")
         print(f"[ERROR] {error}")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    await bot.process_commands(message)
 
 # ════════════════════════════════════════════════
 #         WELCOME & LEAVE EVENTS
@@ -427,6 +436,7 @@ def _get_info(url: str) -> dict:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
+        "extractor_args": {"youtube": {"player_client": ["android_vr"]}},
         **_ydl_cookie_opts(),
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -440,6 +450,12 @@ async def mp3(ctx, *, url: str = None):
     if not url:
         await ctx.send(f"⚠️ Usage: `{settings['prefix']}mp3 <youtube_url>`")
         return
+
+    # Prevent the same user from queuing multiple jobs
+    if ctx.author.id in _active_mp3:
+        await ctx.reply("⏳ You already have a conversion in progress. Please wait.", delete_after=8)
+        return
+    _active_mp3.add(ctx.author.id)
 
     status = await ctx.reply("🔍 Looking up video...")
 
@@ -456,6 +472,7 @@ async def mp3(ctx, *, url: str = None):
 
     if duration and duration > 1500:
         await status.edit(content=f"❌ Video too long ({duration//60} min). Max is **25 minutes**.")
+        _active_mp3.discard(ctx.author.id)
         return
 
     safe_name = "".join(c for c in title if c.isalnum() or c in " _-").strip()[:80]
@@ -473,9 +490,8 @@ async def mp3(ctx, *, url: str = None):
         }],
         "quiet": True,
         "no_warnings": True,
-        "ignoreerrors": False,
         "no_check_certificate": True,
-        "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        "extractor_args": {"youtube": {"player_client": ["android_vr"]}},
         **_ydl_cookie_opts(),
     }
 
@@ -492,12 +508,14 @@ async def mp3(ctx, *, url: str = None):
 
     if not out_path or not os.path.exists(out_path):
         await status.edit(content="❌ MP3 not found after conversion. Is FFmpeg installed?")
+        _active_mp3.discard(ctx.author.id)
         return
 
     size_mb = os.path.getsize(out_path) / (1024 * 1024)
     if size_mb > 25:
         os.remove(out_path)
         await status.edit(content=f"❌ File too large ({size_mb:.1f} MB). Discord limit is 25 MB.")
+        _active_mp3.discard(ctx.author.id)
         return
 
     duration_fmt = str(datetime.timedelta(seconds=duration)) if duration else "Unknown"
@@ -518,6 +536,7 @@ async def mp3(ctx, *, url: str = None):
     finally:
         if os.path.exists(out_path):
             os.remove(out_path)
+        _active_mp3.discard(ctx.author.id)
 
 # ════════════════════════════════════════════════
 #              ADMIN COMMANDS
