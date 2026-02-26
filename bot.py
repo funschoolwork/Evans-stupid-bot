@@ -34,45 +34,25 @@ Path(DOWNLOADS_DIR).mkdir(exist_ok=True)
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        body = b"""<!DOCTYPE html>
+    body = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Bot Status</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{background:#0f0f0f;color:#e8e8e8;font-family:'Segoe UI',sans-serif;
-         display:flex;align-items:center;justify-content:center;min-height:100vh}
-    .card{background:#1a1a2e;border:1px solid #7289da;border-radius:16px;
-          padding:40px 56px;text-align:center;max-width:480px;width:90%}
-    .dot{display:inline-block;width:14px;height:14px;border-radius:50%;
-         background:#43b581;box-shadow:0 0 10px #43b581;margin-right:8px;
-         animation:pulse 2s infinite}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-    h1{font-size:1.8rem;margin:16px 0 8px;color:#fff}
-    .status{font-size:1.1rem;color:#43b581;font-weight:600;margin-bottom:24px}
-    p{color:#aaa;font-size:.9rem;line-height:1.6}
-    .badge{display:inline-block;margin-top:20px;background:#7289da;
-           color:#fff;padding:6px 18px;border-radius:20px;font-size:.85rem}
-  </style>
 </head>
 <body>
-  <div class="card">
-    <div><span class="dot"></span><strong>ONLINE</strong></div>
-    <h1>🤖 Discord Bot</h1>
-    <div class="status">Bot is running</div>
-    <p>This is the health-check endpoint for Render.<br>
-       The Discord bot is active and connected.</p>
-    <div class="badge">render.com deployment</div>
-  </div>
+  <h1>🤖 Discord Bot</h1>
+  <p>Bot is running.</p>
 </body>
-</html>"""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+</html>
+""".encode("utf-8")
+
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.send_header("Content-Length", str(len(body)))
+    self.end_headers()
+    self.wfile.write(body)
 
     def log_message(self, *args):
         pass  # silence HTTP logs in console
