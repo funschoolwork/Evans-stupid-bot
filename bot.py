@@ -475,7 +475,7 @@ async def mp3(ctx, *, url: str = None):
         "no_warnings": True,
         "ignoreerrors": False,
         "no_check_certificate": True,
-        "extractor_args": {"youtube": {"skip": ["hls", "dash"]}},
+        "extractor_args": {"youtube": {"player_client": ["ios"]}},
         **_ydl_cookie_opts(),
     }
 
