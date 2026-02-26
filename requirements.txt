@@ -1,4 +1,4 @@
-discord.py>=2.3.2
-yt-dlp[default]
-python-dotenv>=1.0.0
+https://github.com/yt-dlp/yt-dlp/archive/refs/heads/master.zip
+discord.py
+python-dotenv
 static-ffmpeg
