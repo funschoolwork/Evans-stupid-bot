@@ -12,6 +12,18 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 load_dotenv()
 
+COOKIE_FILE = "cookies.txt"
+
+YT_COOKIE = os.getenv("YT_COOKIE")
+
+
+if YT_COOKIE:
+    with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+        f.write(YT_COOKIE)
+    print("✅ Cookie file created.")
+else:
+    print("⚠️ No YT_COOKIE found.")
+
 # ════════════════════════════════════════════════
 #               CONFIGURATION
 # ════════════════════════════════════════════════
