@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-import yt_dlp
+import aiohttp
 import os
 import json
 import asyncio
@@ -30,6 +30,7 @@ GUILD_ID         = 1476431914851369044
 DOWNLOAD_CHANNEL = 1476431915870322834
 OWNER_ID         = 1424768569710739619
 SETTINGS_FILE    = "settings.json"
+YT_SERVICE_URL   = os.getenv("YT_SERVICE_URL", "")
 DOWNLOADS_DIR    = "downloads"
 PORT             = int(os.getenv("PORT", 8080))
 
@@ -417,30 +418,8 @@ async def download_file(ctx):
     await ctx.reply(message, file=discord.File(file_path, filename=filename))
 
 # ════════════════════════════════════════════════
-#    .mp3  (channel-locked — YouTube to MP3)
+#    .mp3  (channel-locked — calls Node YT service)
 # ════════════════════════════════════════════════
-
-def _ydl_cookie_opts() -> dict:
-    """Return cookiefile opts only if the cookie file exists and has content."""
-    if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
-        return {"cookiefile": COOKIE_FILE}
-    return {}
-
-def _run_ydl(opts: dict, url: str):
-    """Blocking yt-dlp call — runs in executor thread."""
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        return ydl.extract_info(url, download=True)
-
-def _get_info(url: str) -> dict:
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "extractor_args": {"youtube": {"player_client": ["android_vr"]}},
-        **_ydl_cookie_opts(),
-    }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        return ydl.extract_info(url, download=False)
 
 @bot.command(name="mp3", aliases=["ytmp3", "convert"])
 @in_guild()
@@ -449,6 +428,10 @@ async def mp3(ctx, *, url: str = None):
     """Convert a YouTube video to MP3. Only works in the designated channel."""
     if not url:
         await ctx.send(f"⚠️ Usage: `{settings['prefix']}mp3 <youtube_url>`")
+        return
+
+    if not YT_SERVICE_URL:
+        await ctx.send("❌ `YT_SERVICE_URL` is not set. Ask the bot owner to configure it.")
         return
 
     # Prevent the same user from queuing multiple jobs
@@ -460,54 +443,55 @@ async def mp3(ctx, *, url: str = None):
     status = await ctx.reply("🔍 Looking up video...")
 
     try:
-        loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(None, lambda: _get_info(url))
-    except Exception as e:
-        await status.edit(content=f"❌ Could not find video.\n`{e}`")
+        # ── Step 1: Get video info ────────────────────
+        info_timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=info_timeout) as session:
+            async with session.get(f"{YT_SERVICE_URL}/info", params={"url": url}) as resp:
+                if resp.status != 200:
+                    data = await resp.json()
+                    await status.edit(content=f"❌ Could not find video.\n`{data.get('error', 'Unknown error')}`")
+                    _active_mp3.discard(ctx.author.id)
+                    return
+                info = await resp.json()
+
+        title    = info.get("title",    "audio")
+        duration = info.get("duration", 0)
+        uploader = info.get("uploader", "Unknown")
+
+        if duration and duration > 1500:
+            await status.edit(content=f"❌ Video too long ({duration//60} min). Max is **25 minutes**.")
+            _active_mp3.discard(ctx.author.id)
+            return
+
+        safe_name = "".join(c for c in title if c.isalnum() or c in " _-").strip()[:80]
+        out_path  = os.path.join(DOWNLOADS_DIR, f"{safe_name}.mp3")
+
+        await status.edit(content=f"⏳ Converting **{title}** to MP3...")
+
+        # ── Step 2: Download converted MP3 ───────────
+        dl_timeout = aiohttp.ClientTimeout(total=180)
+        async with aiohttp.ClientSession(timeout=dl_timeout) as session:
+            async with session.get(f"{YT_SERVICE_URL}/mp3", params={"url": url}) as resp:
+                if resp.status != 200:
+                    data = await resp.json()
+                    await status.edit(content=f"❌ Conversion failed.\n`{data.get('error', 'Unknown error')}`")
+                    _active_mp3.discard(ctx.author.id)
+                    return
+                with open(out_path, "wb") as f:
+                    async for chunk in resp.content.iter_chunked(65536):
+                        f.write(chunk)
+
+    except asyncio.TimeoutError:
+        await status.edit(content="❌ Timed out after 60s. The YT service may be starting up — try again in a moment.")
+        _active_mp3.discard(ctx.author.id)
         return
-
-    title    = info.get("title", "audio")
-    duration = info.get("duration", 0)
-    uploader = info.get("uploader", "Unknown")
-
-    if duration and duration > 1500:
-        await status.edit(content=f"❌ Video too long ({duration//60} min). Max is **25 minutes**.")
+    except Exception as e:
+        await status.edit(content=f"❌ Service error.\n`{e}`")
         _active_mp3.discard(ctx.author.id)
         return
 
-    safe_name = "".join(c for c in title if c.isalnum() or c in " _-").strip()[:80]
-    out_path  = os.path.join(DOWNLOADS_DIR, f"{safe_name}.mp3")
-
-    await status.edit(content=f"⏳ Converting **{title}** to MP3...")
-
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": os.path.join(DOWNLOADS_DIR, f"{safe_name}.%(ext)s"),
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
-        "quiet": True,
-        "no_warnings": True,
-        "no_check_certificate": True,
-        "extractor_args": {"youtube": {"player_client": ["android_vr"]}},
-        **_ydl_cookie_opts(),
-    }
-
-    try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: _run_ydl(ydl_opts, url))
-    except Exception as e:
-        await status.edit(content=f"❌ Conversion failed.\n`{e}`")
-        return
-
     if not os.path.exists(out_path):
-        matches = list(Path(DOWNLOADS_DIR).glob(f"{safe_name}*.mp3"))
-        out_path = str(matches[0]) if matches else None
-
-    if not out_path or not os.path.exists(out_path):
-        await status.edit(content="❌ MP3 not found after conversion. Is FFmpeg installed?")
+        await status.edit(content="❌ MP3 not received from service.")
         _active_mp3.discard(ctx.author.id)
         return
 
@@ -538,7 +522,6 @@ async def mp3(ctx, *, url: str = None):
             os.remove(out_path)
         _active_mp3.discard(ctx.author.id)
 
-# ════════════════════════════════════════════════
 #              ADMIN COMMANDS
 # ════════════════════════════════════════════════
 
